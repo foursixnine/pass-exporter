@@ -6,12 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
-	"slices"
+	"path"
 	"strings"
-	"syscall"
-
-	"golang.org/x/term"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/gocarina/gocsv"
@@ -173,22 +169,6 @@ func main() {
 
 }
 
-func readPassphrase() (passphrase []byte) {
-	fmt.Print("Enter admin password: ")
-	passphrase, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		fmt.Printf("Could not read password: %v", err)
-	}
-	return
-}
-
-func processLine(line string, idx int) {
-	fmt.Printf("\tprocessing line [%s] %d\n", line, idx)
-	if strings.HasPrefix(line, "otpauth:") {
-		fmt.Println("\tfound otp")
-	}
-}
-
 func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_file *crypto.VerifiedDataResult, err error) {
 	armored, err := os.ReadFile(file_path)
 	if err != nil {
@@ -204,34 +184,19 @@ func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_fi
 	return
 }
 
-func readDirectory(path string) (files []string) {
-	entryFiles, err := os.ReadDir(path)
-	if err != nil {
-		log.Fatal(err)
-	}
+// Passwords are stored in `domain/login` format
+func getUserNameFromFilename(target_file string, pass_dir string) (base_name string, base_path string) {
+	pass_dir = expandHomeDir(pass_dir)
+	wd_file := strings.TrimPrefix(target_file, pass_dir)
+	// if wd_file == target_file {
+	// 	log.Fatalf("ERROR: Target file '%s' contains prefix '%s', seems unmodified", wd_file, pass_dir)
+	// }
+	base_name = path.Base(wd_file)
+	base_name = strings.TrimSuffix(base_name, ".gpg")
+	base_path = path.Dir(wd_file)
 
-	for _, file := range entryFiles {
-
-		if path == passwordstore_dir && string(file.Name()[0]) == "." {
-			continue
-		}
-
-		if file.IsDir() {
-			if isIgnored(file.Name()) {
-				continue
-			}
-			directoryFiles := readDirectory(filepath.Join(path, file.Name()))
-			files = append(files, directoryFiles...)
-		} else {
-			path_to_file := filepath.Join(path, file.Name())
-			files = append(files, path_to_file)
-			fmt.Println(filepath.Join(path, file.Name()))
-		}
-	}
+	// Remove leading slash from base_path if it exists
+	base_path = strings.TrimPrefix(base_path, "/")
 
 	return
-}
-
-func isIgnored(fileName string) bool {
-	return slices.Contains(ignoredDirs, fileName)
 }
