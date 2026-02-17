@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/ProtonMail/gopenpgp/v3 v3.3.0
+	github.com/gocarina/gocsv v0.0.0-20240520201108-78e41c74b4b1
 	golang.org/x/term v0.29.0
 )
 

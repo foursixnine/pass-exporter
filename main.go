@@ -14,16 +14,31 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	"github.com/gocarina/gocsv"
 )
 
 var passwordstore_dir string
 var privateKey *crypto.Key
 var ignoredDirs []string
 
+type Password struct {
+	Folder                 string `csv:"folder"`
+	Favorite               string `csv:"favorite"`
+	Type                   string `csv:"type"`
+	Name                   string `csv:"name"`
+	Notes                  string `csv:"notes"`
+	Fields                 string `csv:"fields"`
+	RepromptMasterPassword string `csv:"reprompt"`
+	LoginURI               string `csv:"login_uri"`
+	LoginUserName          string `csv:"login_username"`
+	LoginPassword          string `csv:"login_password"`
+	LoginTOT               string `csv:"login_totp"`
+}
 func main() {
 
 	var passphrase []byte
 
+	output_file := flag.String("output", "pass_exported_passwords.csv", "File to save the exported passwords")
 	privateKeyFile := flag.String("private-key", "", "Armored private key to use (required)")
 	identity_email := flag.String("identity", "santiago@zarate.co", "Email that must match the identity of the private key")
 	passwordstore_dir = *flag.String("password-store", "/Users/foursixnine/.password-store/suse.com", "Location to password-store directory")
@@ -75,29 +90,83 @@ func main() {
 		return
 	}
 
+	csv_file, err := os.Create(*output_file)
+	if err != nil {
+		panic(err)
+	}
+	defer csv_file.Close()
+
+	var passwords []*Password
+
 	var failed_to_decrypt []string
+	processed_files := 0
 	for _, encrypted_file := range readDirectory(passwordstore_dir) {
+
 		fmt.Printf("Found File: %s\n", encrypted_file)
 		decrypted, err := decryptFile(encrypted_file, decHandle)
+
+		login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, passwordstore_dir)
 
 		if err != nil {
 			fmt.Printf("Error decrypting %s", encrypted_file)
 			failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
-
+			continue
 		}
 
 		myMessage := decrypted.Bytes()
 
 		fmt.Printf("---BEGIN DATA for %s---\n", encrypted_file)
-		// fmt.Print(string(myMessage))
-		// Convert myMessage to string and split by lines
+		fmt.Println(string(myMessage))
+		fmt.Println("End of raw data, processing lines:")
 		lines := bytes.Split(myMessage, []byte("\n"))
+
+		var password Password
+		var notes []string
+
 		for idx, line := range lines {
-			processLine(string(line), idx) // Convert each line back to string and process it
+			current_line := string(line)
+
+			if strings.HasPrefix(current_line, "otpauth:") {
+				password.LoginTOT = current_line
+				continue
+			}
+			if idx == 0 {
+				password.LoginPassword = current_line
+				continue
+			}
+
+			// all the rest of the lines go into notes
+			notes = append(notes, current_line)
+
 		}
-		fmt.Printf("---END DATA for %s---\n", encrypted_file)
+
+		password.Folder = "Imported"
+		password.Type = "Login"
+		password.Name = login_uri_from_file + " " + login_from_file
+		password.LoginUserName = login_from_file
+		password.LoginURI = login_uri_from_file
+		password.Notes = strings.Join(notes, "\n")
+		passwords = append(passwords, &password)
+
+		fmt.Printf("login %s\n", login_from_file)
+		fmt.Printf("login uri: %s\n", login_uri_from_file)
 		fmt.Printf("Processed %d lines\n", len(lines))
+		fmt.Printf("---END DATA for %s---\n", encrypted_file)
 		fmt.Println("")
+		processed_files++
+	}
+
+	if len(failed_to_decrypt) > 0 {
+		fmt.Printf("Failed to decrypt %d files:\n", len(failed_to_decrypt))
+		for _, failed_file := range failed_to_decrypt {
+			fmt.Printf("\t%s\n", failed_file)
+		}
+	}
+
+	fmt.Printf("Processed %d files, %d records inserted into csv", processed_files, len(passwords))
+
+	if err := gocsv.MarshalFile(&passwords, csv_file); err != nil {
+		panic(err)
 	}
 
 	decHandle.ClearPrivateParams()
