@@ -30,19 +30,30 @@ type Password struct {
 	LoginPassword          string `csv:"login_password"`
 	LoginTOT               string `csv:"login_totp"`
 }
+
 func main() {
 
 	var passphrase []byte
 
+	ignoredDirs = []string{"gpg"}
+
+	help := flag.Bool("help", false, "Show help")
 	output_file := flag.String("output", "pass_exported_passwords.csv", "File to save the exported passwords")
 	privateKeyFile := flag.String("private-key", "", "Armored private key to use (required)")
-	identity_email := flag.String("identity", "santiago@zarate.co", "Email that must match the identity of the private key")
-	passwordstore_dir = *flag.String("password-store", "/Users/foursixnine/.password-store/suse.com", "Location to password-store directory")
+	identity_email := flag.String("identity", "santiago@zarate.co", "Email that must match the identity of the private key (required)")
+	passwordstore_dir = *flag.String("password-store", "~/.password-store", "Location to password-store directory")
 	env_passprase := os.Getenv("GPG_PASSWORD")
 
-	if *privateKeyFile == "" {
+	flag.Parse()
+
+	if *help {
 		flag.Usage()
-		os.Exit(1)
+		os.Exit(0)
+	}
+
+	if *privateKeyFile == "" || *identity_email == "" {
+		flag.Usage()
+		log.Fatal("A private key file and an Identity email must be provided")
 	}
 
 	if env_passprase != "" {
@@ -52,10 +63,6 @@ func main() {
 		passphrase = readPassphrase()
 	}
 
-	flag.Parse()
-
-	ignoredDirs = []string{".git", "gpg"}
-
 	keyData, err := os.ReadFile(*privateKeyFile)
 	if err != nil {
 		fmt.Printf("Error reading private key file: %v\n", err)
@@ -64,10 +71,9 @@ func main() {
 
 	privateKey, err = crypto.NewPrivateKeyFromArmored(string(keyData), passphrase)
 	if err != nil {
-		fmt.Printf("Error unlocking private key file: %v\n", err)
-		fmt.Printf("Check that the provided password matches the provided private key (%s)\n", *privateKeyFile)
+		log.Printf("Error unlocking private key file: %v\n", err)
+		log.Fatalf("Check that the provided password matches the provided private key (%s)\n", *privateKeyFile)
 		os.Exit(2)
-		return
 	}
 
 	keyRing, err := crypto.NewKeyRing(privateKey)

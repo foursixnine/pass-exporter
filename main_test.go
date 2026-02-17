@@ -70,3 +70,55 @@ func TestReadDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestGetUserNameFromFilename(t *testing.T) {
+	tests := []struct {
+		name         string
+		targetFile   string
+		passDir      string
+		expectedBase string
+		expectedPath string
+	}{
+		{
+			name:         "Basic Test, domain/login",
+			targetFile:   "/path/to/something/here/i/care/about.com.gpg",
+			passDir:      "/path/to/something",
+			expectedBase: "about.com",
+			expectedPath: "here/i/care",
+		},
+		{
+			name:         "No Modification",
+			targetFile:   "/another/path/to/file.txt",
+			passDir:      "/different/path",
+			expectedBase: "file.txt",
+			expectedPath: "another/path/to",
+		},
+		{
+			name:         "Empty Path",
+			targetFile:   "/path/to/file.txt",
+			passDir:      "/path/to",
+			expectedBase: "file.txt",
+			expectedPath: "",
+		},
+		// {
+		// 	name:         "Only Base Name",
+		// 	targetFile:   "/path/to/file/",
+		// 	passDir:      "/path/to/file",
+		// 	expectedBase: "file",
+		// 	expectedPath: "",
+		// },
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseName, basePath := getUserNameFromFilename(tt.targetFile, tt.passDir)
+
+			if baseName != tt.expectedBase {
+				t.Errorf("expected %s, got %s", tt.expectedBase, baseName)
+			}
+			if basePath != tt.expectedPath {
+				t.Errorf("expected %s, got %s", tt.expectedPath, basePath)
+			}
+		})
+	}
+}
