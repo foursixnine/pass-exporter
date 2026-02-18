@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/gocarina/gocsv"
@@ -40,7 +41,7 @@ func main() {
 	help := flag.Bool("help", false, "Show help")
 	output_file := flag.String("output", "pass_exported_passwords.csv", "File to save the exported passwords")
 	privateKeyFile := flag.String("private-key", "", "Armored private key to use (required)")
-	identity_email := flag.String("identity", "santiago@zarate.co", "Email that must match the identity of the private key (required)")
+	identity_email := flag.String("identity", "", "Email that must match the identity of the private key (required)")
 	passwordstore_dir = *flag.String("password-store", "~/.password-store", "Location to password-store directory")
 	env_passprase := os.Getenv("GPG_PASSWORD")
 
@@ -79,7 +80,6 @@ func main() {
 	keyRing, err := crypto.NewKeyRing(privateKey)
 
 	for _, identity := range keyRing.GetIdentities() {
-
 		if identity.Email == *identity_email {
 			fmt.Printf("Identity found: %s (%s)\n", identity.Name, identity.Email)
 		}
@@ -92,66 +92,34 @@ func main() {
 		return
 	}
 
-
-	var passwords []*Password
-
+	var passwords []Password
 	var failed_to_decrypt []string
 	processed_files := 0
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
+
 	for _, encrypted_file := range readDirectory(passwordstore_dir) {
-
 		fmt.Printf("Found File: %s\n", encrypted_file)
-		decrypted, err := decryptFile(encrypted_file, decHandle)
-
-		login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, passwordstore_dir)
-
-		if err != nil {
-			fmt.Printf("Error decrypting %s", encrypted_file)
-			failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
-			continue
-		}
-
-		myMessage := decrypted.Bytes()
-
-		fmt.Printf("---BEGIN DATA for %s---\n", encrypted_file)
-		fmt.Println(string(myMessage))
-		fmt.Println("End of raw data, processing lines:")
-		lines := bytes.Split(myMessage, []byte("\n"))
-
-		var password Password
-		var notes []string
-
-		for idx, line := range lines {
-			current_line := string(line)
-
-			if strings.HasPrefix(current_line, "otpauth:") {
-				password.LoginTOT = current_line
-				continue
+		wg.Add(1)
+		go func() {
+			password, err := processFile(encrypted_file, decHandle)
+			if err != nil {
+				fmt.Printf("Error decrypting %s", encrypted_file)
+				mutex.Lock()
+				failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
+				mutex.Unlock()
+				wg.Done()
+				return
 			}
-			if idx == 0 {
-				password.LoginPassword = current_line
-				continue
-			}
-
-			// all the rest of the lines go into notes
-			notes = append(notes, current_line)
-
-		}
-
-		password.Folder = "Imported"
-		password.Type = "Login"
-		password.Name = login_uri_from_file + " " + login_from_file
-		password.LoginUserName = login_from_file
-		password.LoginURI = login_uri_from_file
-		password.Notes = strings.Join(notes, "\n")
-		passwords = append(passwords, &password)
-
-		fmt.Printf("login %s\n", login_from_file)
-		fmt.Printf("login uri: %s\n", login_uri_from_file)
-		fmt.Printf("Processed %d lines\n", len(lines))
-		fmt.Printf("---END DATA for %s---\n", encrypted_file)
-		fmt.Println("")
-		processed_files++
+			mutex.Lock()
+			passwords = append(passwords, password)
+			processed_files++
+			mutex.Unlock()
+			wg.Done()
+		}()
 	}
+
+	wg.Wait()
 
 	if len(failed_to_decrypt) > 0 {
 		fmt.Printf("Failed to decrypt %d files:\n", len(failed_to_decrypt))
@@ -159,8 +127,6 @@ func main() {
 			fmt.Printf("\t%s\n", failed_file)
 		}
 	}
-
-	fmt.Printf("Processed %d files, %d records inserted into csv", processed_files, len(passwords))
 
 	csv_file, err := os.Create(*output_file)
 	if err != nil {
@@ -172,8 +138,59 @@ func main() {
 		panic(err)
 	}
 
+	fmt.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
 	decHandle.ClearPrivateParams()
 
+}
+
+func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
+	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, passwordstore_dir)
+
+	decrypted, err := decryptFile(encrypted_file, decHandle)
+	if err != nil {
+		return
+	}
+
+	myMessage := decrypted.Bytes()
+
+	fmt.Printf("---BEGIN DATA for %s---\n", encrypted_file)
+	// fmt.Println(string(myMessage))
+	// fmt.Println("End of raw data, processing lines:")
+
+	var notes []string
+	lines := bytes.Split(myMessage, []byte("\n"))
+	for idx, line := range lines {
+		current_line := string(line)
+
+		if strings.HasPrefix(current_line, "otpauth:") {
+			password.LoginTOT = current_line
+			continue
+		}
+
+		if idx == 0 {
+			password.LoginPassword = current_line
+			continue
+		}
+
+		// all the rest of the lines go into notes
+		notes = append(notes, current_line)
+
+	}
+
+	password.Folder = "Imported"
+	password.Type = "Login"
+	password.Name = login_uri_from_file + " " + login_from_file
+	password.LoginUserName = login_from_file
+	password.LoginURI = login_uri_from_file
+	password.Notes = strings.Join(notes, "\n")
+
+	fmt.Printf("login %s\n", login_from_file)
+	fmt.Printf("login uri: %s\n", login_uri_from_file)
+	fmt.Printf("Processed %d lines\n", len(lines))
+	fmt.Printf("---END DATA for %s---\n", encrypted_file)
+	fmt.Println("")
+
+	return
 }
 
 func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_file *crypto.VerifiedDataResult, err error) {
