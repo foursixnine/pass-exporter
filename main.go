@@ -92,11 +92,6 @@ func main() {
 		return
 	}
 
-	csv_file, err := os.Create(*output_file)
-	if err != nil {
-		panic(err)
-	}
-	defer csv_file.Close()
 
 	var passwords []*Password
 
@@ -166,6 +161,12 @@ func main() {
 	}
 
 	fmt.Printf("Processed %d files, %d records inserted into csv", processed_files, len(passwords))
+
+	csv_file, err := os.Create(*output_file)
+	if err != nil {
+		panic(err)
+	}
+	defer csv_file.Close()
 
 	if err := gocsv.MarshalFile(&passwords, csv_file); err != nil {
 		panic(err)
