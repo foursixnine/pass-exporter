@@ -12,6 +12,19 @@ import (
 	"golang.org/x/term"
 )
 
+type ignoreDirs []string
+
+// String is an implementation of the flag.Value interface
+func (i *ignoreDirs) String() string {
+	return fmt.Sprintf("%v", *i)
+}
+
+// Set is an implementation of the flag.Value interface
+func (i *ignoreDirs) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
 func expandHomeDir(src_path string) (path string) {
 	path = src_path
 	if strings.HasPrefix(path, "~") {
@@ -50,7 +63,7 @@ func readDirectory(path string) (files []string) {
 		} else {
 			path_to_file := filepath.Join(path, file.Name())
 			files = append(files, path_to_file)
-			fmt.Println(filepath.Join(path, file.Name()))
+			// fmt.Println(filepath.Join(path, file.Name()))
 		}
 	}
 

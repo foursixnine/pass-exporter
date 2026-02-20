@@ -14,9 +14,9 @@ import (
 	"github.com/gocarina/gocsv"
 )
 
-var passwordstore_dir string
+var passwordstore_dir *string
 var privateKey *crypto.Key
-var ignoredDirs []string
+var ignoredDirs ignoreDirs
 
 type Password struct {
 	Folder                 string `csv:"folder"`
@@ -36,13 +36,12 @@ func main() {
 
 	var passphrase []byte
 
-	ignoredDirs = []string{"gpg"}
-
 	help := flag.Bool("help", false, "Show help")
 	output_file := flag.String("output", "pass_exported_passwords.csv", "File to save the exported passwords")
 	privateKeyFile := flag.String("private-key", "", "Armored private key to use (required)")
 	identity_email := flag.String("identity", "", "Email that must match the identity of the private key (required)")
-	passwordstore_dir = *flag.String("password-store", "~/.password-store", "Location to password-store directory")
+	passwordstore_dir = flag.String("password-store", "", "Location to password-store directory")
+	flag.Var(&ignoredDirs, "ignore-dir", "Ignore directory, can be used multiple times")
 	env_passprase := os.Getenv("GPG_PASSWORD")
 
 	flag.Parse()
@@ -98,13 +97,17 @@ func main() {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
-	for _, encrypted_file := range readDirectory(passwordstore_dir) {
-		fmt.Printf("Found File: %s\n", encrypted_file)
+	for _, encrypted_file := range readDirectory(*passwordstore_dir) {
+		if !strings.HasSuffix(encrypted_file, ".gpg") {
+			// fmt.Printf("Ignoring file %s\n", encrypted_file)
+			continue
+		}
+		fmt.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
 		go func() {
 			password, err := processFile(encrypted_file, decHandle)
 			if err != nil {
-				fmt.Printf("Error decrypting %s", encrypted_file)
+				fmt.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
 				failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
 				mutex.Unlock()
@@ -144,7 +147,7 @@ func main() {
 }
 
 func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
-	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, passwordstore_dir)
+	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, *passwordstore_dir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
 	if err != nil {
