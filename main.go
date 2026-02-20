@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"flag"
 	"fmt"
 	"log"
@@ -30,6 +31,8 @@ type Password struct {
 	LoginUserName          string `csv:"login_username"`
 	LoginPassword          string `csv:"login_password"`
 	LoginTOT               string `csv:"login_totp"`
+	SHA1                   string `csv:"-"`
+	LoginTOTSHA1           string `csv:"-"`
 }
 
 func main() {
@@ -131,6 +134,9 @@ func main() {
 		}
 	}
 
+	checkUniqueOTP(&passwords)
+	checkUniquePasswords(&passwords)
+
 	csv_file, err := os.Create(*output_file)
 	if err != nil {
 		panic(err)
@@ -144,6 +150,40 @@ func main() {
 	fmt.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
 	decHandle.ClearPrivateParams()
 
+}
+
+func checkUniqueOTP(passwords *[]Password) {
+	seenOTPs := make(map[string][]string)
+
+	for _, password := range *passwords {
+		if password.LoginTOT != "" { // Check for non-empty entries
+			seenOTPs[password.LoginTOT] = append(seenOTPs[password.LoginTOT], password.Name)
+		}
+	}
+
+	// Check for duplicates
+	for _, usernames := range seenOTPs {
+		if len(usernames) > 1 { // More than one username sharing the same OTP
+			fmt.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
+		}
+	}
+}
+
+func checkUniquePasswords(passwords *[]Password) {
+	seenPasswords := make(map[string][]string)
+
+	for _, password := range *passwords {
+		if password.LoginPassword != "" { // Check for non-empty entries
+			seenPasswords[password.SHA1] = append(seenPasswords[password.SHA1], password.Name)
+		}
+	}
+
+	// Check for duplicates
+	for _, usernames := range seenPasswords {
+		if len(usernames) > 1 {
+			fmt.Printf("Duplicate password logins: %v\n", usernames)
+		}
+	}
 }
 
 func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
@@ -187,6 +227,15 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 	password.LoginURI = login_uri_from_file
 	password.Notes = strings.Join(notes, "\n")
 
+	if password.LoginPassword != "" {
+		password_sha1 := sha1.New().Sum([]byte(password.LoginPassword))
+		password.SHA1 = fmt.Sprintf("%x", password_sha1)
+	}
+
+	if password.LoginTOTSHA1 != "" {
+		login_totp_sha1 := sha1.New().Sum([]byte(password.LoginTOT))
+		password.LoginTOTSHA1 = fmt.Sprintf("%x", login_totp_sha1)
+	}
 	fmt.Printf("login %s\n", login_from_file)
 	fmt.Printf("login uri: %s\n", login_uri_from_file)
 	fmt.Printf("Processed %d lines\n", len(lines))
