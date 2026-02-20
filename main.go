@@ -15,10 +15,6 @@ import (
 	"github.com/gocarina/gocsv"
 )
 
-var passwordstore_dir *string
-var privateKey *crypto.Key
-var ignoredDirs ignoreDirs
-
 type Password struct {
 	Folder                 string `csv:"folder"`
 	Favorite               string `csv:"favorite"`
@@ -32,19 +28,30 @@ type Password struct {
 	LoginPassword          string `csv:"login_password"`
 	LoginTOT               string `csv:"login_totp"`
 	SHA1                   string `csv:"-"`
-	LoginTOTSHA1           string `csv:"-"`
+	TOTPSHA1               string `csv:"-"`
 }
+
+type Options struct {
+	OutputFile       string
+	PrivateKeyFile   string
+	IdentityEmail    string
+	PasswordStoreDir string
+	IgnoredDirs      ignoreDirs
+}
+
+var Config Options
 
 func main() {
 
 	var passphrase []byte
+	var private_key *crypto.Key
 
 	help := flag.Bool("help", false, "Show help")
-	output_file := flag.String("output", "pass_exported_passwords.csv", "File to save the exported passwords")
-	privateKeyFile := flag.String("private-key", "", "Armored private key to use (required)")
-	identity_email := flag.String("identity", "", "Email that must match the identity of the private key (required)")
-	passwordstore_dir = flag.String("password-store", "", "Location to password-store directory")
-	flag.Var(&ignoredDirs, "ignore-dir", "Ignore directory, can be used multiple times")
+	flag.StringVar(&Config.OutputFile, "output", "pass_exported_passwords.csv", "File to save the exported passwords")
+	flag.StringVar(&Config.PrivateKeyFile, "private-key", "", "Armored private key to use (required)")
+	flag.StringVar(&Config.IdentityEmail, "identity", "", "Email that must match the identity of the private key (required)")
+	flag.StringVar(&Config.PasswordStoreDir, "password-store", "", "Location to password-store directory")
+	flag.Var(&Config.IgnoredDirs, "ignore-dir", "Ignore directory, can be used multiple times")
 	env_passprase := os.Getenv("GPG_PASSWORD")
 
 	flag.Parse()
@@ -54,7 +61,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *privateKeyFile == "" || *identity_email == "" {
+	if Config.PrivateKeyFile == "" || Config.IdentityEmail == "" {
 		flag.Usage()
 		log.Fatal("A private key file and an Identity email must be provided")
 	}
@@ -66,29 +73,27 @@ func main() {
 		passphrase = readPassphrase()
 	}
 
-	keyData, err := os.ReadFile(*privateKeyFile)
+	key_data, err := os.ReadFile(Config.PrivateKeyFile)
 	if err != nil {
-		fmt.Printf("Error reading private key file: %v\n", err)
-		os.Exit(2)
+		log.Fatalf("Error reading private key file: %v\n", err)
 	}
 
-	privateKey, err = crypto.NewPrivateKeyFromArmored(string(keyData), passphrase)
+	private_key, err = crypto.NewPrivateKeyFromArmored(string(key_data), passphrase)
 	if err != nil {
 		log.Printf("Error unlocking private key file: %v\n", err)
-		log.Fatalf("Check that the provided password matches the provided private key (%s)\n", *privateKeyFile)
-		os.Exit(2)
+		log.Fatalf("Check that the provided password matches the provided private key (%s)\n", Config.PrivateKeyFile)
 	}
 
-	keyRing, err := crypto.NewKeyRing(privateKey)
+	keyRing, err := crypto.NewKeyRing(private_key)
 
 	for _, identity := range keyRing.GetIdentities() {
-		if identity.Email == *identity_email {
+		if identity.Email == Config.IdentityEmail {
 			fmt.Printf("Identity found: %s (%s)\n", identity.Name, identity.Email)
 		}
 	}
 
 	pgp := crypto.PGP()
-	decHandle, err := pgp.Decryption().DecryptionKey(privateKey).New()
+	decryption_handle, err := pgp.Decryption().DecryptionKey(private_key).New()
 	if err != nil {
 		fmt.Printf("Error obtaining decryptor handle: %v\n", err)
 		return
@@ -100,7 +105,7 @@ func main() {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
-	for _, encrypted_file := range readDirectory(*passwordstore_dir) {
+	for _, encrypted_file := range readDirectory(Config.PasswordStoreDir) {
 		if !strings.HasSuffix(encrypted_file, ".gpg") {
 			// fmt.Printf("Ignoring file %s\n", encrypted_file)
 			continue
@@ -108,7 +113,7 @@ func main() {
 		fmt.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
 		go func() {
-			password, err := processFile(encrypted_file, decHandle)
+			password, err := processFile(encrypted_file, decryption_handle)
 			if err != nil {
 				fmt.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
@@ -137,18 +142,24 @@ func main() {
 	checkUniqueOTP(&passwords)
 	checkUniquePasswords(&passwords)
 
-	csv_file, err := os.Create(*output_file)
+	csv_file, err := os.Create(Config.OutputFile)
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 	defer csv_file.Close()
 
 	if err := gocsv.MarshalFile(&passwords, csv_file); err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
 	fmt.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
-	decHandle.ClearPrivateParams()
+	decryption_handle.ClearPrivateParams()
+
+}
+
+func hashSHA1(s string) string {
+
+	return fmt.Sprintf("%x", sha1.New().Sum([]byte(s)))
 
 }
 
@@ -187,7 +198,7 @@ func checkUniquePasswords(passwords *[]Password) {
 }
 
 func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
-	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, *passwordstore_dir)
+	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
 	if err != nil {
@@ -210,7 +221,7 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 			continue
 		}
 
-		if idx == 0 {
+		if idx == 0 && password.LoginPassword != "" {
 			password.LoginPassword = current_line
 			continue
 		}
@@ -228,13 +239,11 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 	password.Notes = strings.Join(notes, "\n")
 
 	if password.LoginPassword != "" {
-		password_sha1 := sha1.New().Sum([]byte(password.LoginPassword))
-		password.SHA1 = fmt.Sprintf("%x", password_sha1)
+		password.SHA1 = hashSHA1(password.LoginPassword)
 	}
 
-	if password.LoginTOTSHA1 != "" {
-		login_totp_sha1 := sha1.New().Sum([]byte(password.LoginTOT))
-		password.LoginTOTSHA1 = fmt.Sprintf("%x", login_totp_sha1)
+	if password.TOTPSHA1 != "" {
+		password.TOTPSHA1 = hashSHA1(password.LoginTOT)
 	}
 	fmt.Printf("login %s\n", login_from_file)
 	fmt.Printf("login uri: %s\n", login_uri_from_file)
@@ -264,9 +273,7 @@ func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_fi
 func getUserNameFromFilename(target_file string, pass_dir string) (base_name string, base_path string) {
 	pass_dir = expandHomeDir(pass_dir)
 	wd_file := strings.TrimPrefix(target_file, pass_dir)
-	// if wd_file == target_file {
-	// 	log.Fatalf("ERROR: Target file '%s' contains prefix '%s', seems unmodified", wd_file, pass_dir)
-	// }
+
 	base_name = path.Base(wd_file)
 	base_name = strings.TrimSuffix(base_name, ".gpg")
 	base_path = path.Dir(wd_file)

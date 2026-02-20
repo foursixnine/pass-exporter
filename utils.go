@@ -71,7 +71,7 @@ func readDirectory(path string) (files []string) {
 }
 
 func isIgnored(fileName string) bool {
-	return slices.Contains(ignoredDirs, fileName)
+	return slices.Contains(Config.IgnoredDirs, fileName)
 }
 
 func readPassphrase() (passphrase []byte) {
