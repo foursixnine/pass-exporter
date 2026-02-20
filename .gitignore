@@ -26,5 +26,6 @@ go.work.sum
 .env
 
 /private_key.asc
+/private-key.asc
 examples/*.csv
 pass_exported_passwords.csv
