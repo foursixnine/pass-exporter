@@ -165,19 +165,17 @@ func hashSHA1(s string) string {
 
 func checkUniqueOTP(passwords *[]Password) {
 	seenOTPs := make(map[string][]string)
-
 	log.Println("Checking for duplicate otp tokens")
 	for _, password := range *passwords {
-		if password.LoginTOT != "" { // Check for non-empty entries
-			seenOTPs[password.LoginTOT] = append(seenOTPs[password.LoginTOT], password.Name)
+		if password.LoginTOT == "" {
+			continue
 		}
+		seenOTPs[password.TOTPSHA1] = append(seenOTPs[password.TOTPSHA1], password.Name)
+		// log.Printf("%x", password.TOTPSHA1)
 	}
 
-	// Check for duplicates
-	for _, usernames := range seenOTPs {
-		if len(usernames) > 1 { // More than one username sharing the same OTP
-			fmt.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
-		}
+	usernames, has_duplicates := hasDuplicates(seenOTPs)
+	if has_duplicates {
 		log.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
 	}
 }
@@ -186,18 +184,26 @@ func checkUniquePasswords(passwords *[]Password) {
 	seenPasswords := make(map[string][]string)
 
 	for _, password := range *passwords {
-		if password.LoginPassword != "" { // Check for non-empty entries
-			seenPasswords[password.SHA1] = append(seenPasswords[password.SHA1], password.Name)
+		if password.LoginPassword == "" {
+			continue
 		}
+		seenPasswords[password.SHA1] = append(seenPasswords[password.SHA1], password.Name)
 	}
 
-	// Check for duplicates
-	for _, usernames := range seenPasswords {
-		if len(usernames) > 1 {
-			fmt.Printf("Duplicate password logins: %v\n", usernames)
+	usernames, has_duplicates := hasDuplicates(seenPasswords)
+	if has_duplicates {
 		log.Printf("Duplicate password logins: %v\n", usernames)
+	}
+}
+
+func hasDuplicates(seen_usernames map[string][]string) (usernames []string, has_duplicates bool) {
+	for _, group := range seen_usernames {
+		if len(group) > 1 {
+			has_duplicates = true
+			usernames = append(usernames, group...)
 		}
 	}
+	return
 }
 
 func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
