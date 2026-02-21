@@ -217,7 +217,7 @@ func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption)
 
 	log.Printf("---BEGIN DATA for %s---\n", encrypted_file)
 	lines := strings.Split(string(decrypted_bytes), "\n") //bytes.Split(decrypted_bytes, []byte("\n"))
-	total_lines := generatePasswordFromByte(lines, &password, login_uri_from_file, login_from_file)
+	total_lines := generatePasswordFromLines(lines, &password, login_uri_from_file, login_from_file)
 
 	log.Printf("login %s\n", login_from_file)
 	log.Printf("login uri: %s\n", login_uri_from_file)
@@ -228,7 +228,7 @@ func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption)
 	return
 }
 
-func generatePasswordFromByte(plaintext_lines []string, password *Password, login_uri_from_file string, login_from_file string) (total_lines int) {
+func generatePasswordFromLines(plaintext_lines []string, password *Password, login_uri_from_file string, login_from_file string) (total_lines int) {
 	var notes []string
 
 	for idx, current_line := range plaintext_lines {
