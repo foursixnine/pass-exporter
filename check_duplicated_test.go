@@ -169,3 +169,97 @@ func TestHasDuplicates(t *testing.T) {
 		})
 	}
 }
+
+func TestPostprocessedPasswords(t *testing.T) {
+	alice_lines := strings.Split("secret\n\notpauth://totp/REAL?secret=ABC", "\n")
+	var alice_processed Password
+	var alice_expected Password
+	alice_expected.LoginURI = "example.com"
+	alice_expected.LoginUserName = "alice@example.com"
+	alice_expected.LoginPassword = "secret"
+	alice_expected.SHA1 = "e5e9fa1ba31ecd1ae84f75caaa474f3a663f05f4"
+	alice_expected.LoginTOT = "otpauth://totp/REAL?secret=ABC"
+	alice_expected.TOTPSHA1 = "72457c98abae7ba498af5c3425619632471564a4"
+	gotLines := generatePasswordFromLines(alice_lines, &alice_processed, alice_expected.LoginURI, alice_expected.LoginUserName)
+
+	if gotLines != 3 {
+		t.Fatalf("Got %d lines, expected %d", gotLines, 3)
+	}
+
+	if alice_processed.SHA1 != alice_expected.SHA1 {
+		t.Fatalf("Bad SHA1: %s (from [%s]), expected %s (from [%s])", alice_processed.SHA1, alice_processed.LoginPassword, alice_expected.SHA1, alice_expected.LoginPassword)
+	}
+
+	if alice_processed.TOTPSHA1 != alice_expected.TOTPSHA1 {
+		t.Fatalf("Bad TOTPSHA1 for %s: got %s (from [%s]), expected %s (from [%s])", alice_processed, alice_processed.TOTPSHA1, alice_processed.LoginTOT, alice_expected.TOTPSHA1, alice_expected.LoginTOT)
+	}
+
+	bob_lines := strings.Split("secret\n\notpauth://totp/FAKE?secret=ABC", "\n")
+	var bob_processed Password
+	var bob_expected Password
+	bob_expected.LoginURI = "example.com"
+	bob_expected.LoginUserName = "bob@example.com"
+	bob_expected.LoginPassword = "secret"
+	bob_expected.SHA1 = "e5e9fa1ba31ecd1ae84f75caaa474f3a663f05f4"
+	bob_expected.LoginTOT = "otpauth://totp/FAKE?secret=ABC"
+	bob_expected.TOTPSHA1 = "15fa60a1edc40ec35cce13e94d15d0225066dd37"
+	gotLines = generatePasswordFromLines(bob_lines, &bob_processed, bob_expected.LoginURI, bob_expected.LoginUserName)
+
+	if gotLines != 3 {
+		t.Fatalf("Got %d lines, expected %d", gotLines, 3)
+	}
+
+	if bob_processed.SHA1 != bob_expected.SHA1 {
+		t.Fatalf("Bad SHA1: %s (from [%s]), expected %s (from [%s])", bob_processed.SHA1, bob_processed.LoginPassword, bob_expected.SHA1, bob_expected.LoginPassword)
+	}
+
+	if bob_processed.TOTPSHA1 != bob_expected.TOTPSHA1 {
+		t.Fatalf("Bad TOTPSHA1 for %s: got %s (from [%s]), expected %s (from [%s])", bob_processed, bob_processed.TOTPSHA1, bob_processed.LoginTOT, bob_expected.TOTPSHA1, bob_expected.LoginTOT)
+	}
+
+	carol_lines := strings.Split("\n\notpauth://totp/REAL?secret=ABC", "\n")
+	var carol_processed Password
+	var carol_expected Password
+	carol_expected.LoginURI = "example.com"
+	carol_expected.LoginUserName = "carol@example.com"
+	carol_expected.LoginPassword = "secret"
+	carol_expected.SHA1 = ""
+	carol_expected.LoginTOT = "otpauth://totp/REAL?secret=ABC"
+	carol_expected.TOTPSHA1 = "72457c98abae7ba498af5c3425619632471564a4"
+	gotLines = generatePasswordFromLines(carol_lines, &carol_processed, carol_expected.LoginURI, carol_expected.LoginUserName)
+
+	if gotLines != 3 {
+		t.Fatalf("Got %d lines, expected %d", gotLines, 3)
+	}
+
+	if carol_processed.SHA1 != carol_expected.SHA1 {
+		t.Fatalf("Bad SHA1: %s (from [%s]), expected %s (from [%s])", carol_processed.SHA1, carol_processed.LoginPassword, carol_expected.SHA1, carol_expected.LoginPassword)
+	}
+
+	if carol_processed.TOTPSHA1 != carol_expected.TOTPSHA1 {
+		t.Fatalf("Bad TOTPSHA1 for %s: got %s (from [%s]), expected %s (from [%s])", carol_processed, carol_processed.TOTPSHA1, carol_processed.LoginTOT, carol_expected.TOTPSHA1, carol_expected.LoginTOT)
+	}
+
+	passwords := []Password{
+		alice_processed,
+		bob_processed,
+		carol_processed,
+	}
+
+	t.Run("Bob and Alice have the same password but not Carol", func(t *testing.T) {
+		out := captureOutput(func() { checkUniquePasswords(&passwords) })
+		found := (strings.Contains(out, "bob") && strings.Contains(out, "alice") && !strings.Contains(out, "carol"))
+		if !found {
+			t.Fatalf("checkUniquePasswords() found duplicate=%v; want %v; output=%q", found, true, out)
+		}
+	})
+
+	t.Run("Carol and Alice share the same OTP but not with Bob", func(t *testing.T) {
+		out := captureOutput(func() { checkUniqueOTP(&passwords) })
+		found := (!strings.Contains(out, "bob") && strings.Contains(out, "alice") && strings.Contains(out, "carol"))
+		if !found {
+			t.Fatalf("checkUniquePasswords() found duplicate=%v; want %v; output=%q", found, true, out)
+		}
+	})
+
+}
