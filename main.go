@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"flag"
 	"fmt"
@@ -113,7 +112,7 @@ func main() {
 		log.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
 		go func() {
-			password, err := processFile(encrypted_file, decryption_handle)
+			password, err := processEncryptedFile(encrypted_file, decryption_handle)
 			if err != nil {
 				log.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
@@ -206,7 +205,7 @@ func hasDuplicates(seen_usernames map[string][]string) (usernames []string, has_
 	return
 }
 
-func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
+func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
 	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
@@ -214,14 +213,26 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 		return
 	}
 
-	myMessage := decrypted.Bytes()
+	decrypted_bytes := decrypted.Bytes()
 
 	log.Printf("---BEGIN DATA for %s---\n", encrypted_file)
+	lines := strings.Split(string(decrypted_bytes), "\n") //bytes.Split(decrypted_bytes, []byte("\n"))
+	total_lines := generatePasswordFromByte(lines, &password, login_uri_from_file, login_from_file)
 
+	log.Printf("login %s\n", login_from_file)
+	log.Printf("login uri: %s\n", login_uri_from_file)
+	log.Printf("Processed %d lines\n", total_lines)
+	log.Printf("---END DATA for %s---\n", encrypted_file)
+	fmt.Println("")
+
+	return
+}
+
+func generatePasswordFromByte(plaintext_lines []string, password *Password, login_uri_from_file string, login_from_file string) (total_lines int) {
 	var notes []string
-	lines := bytes.Split(myMessage, []byte("\n"))
-	for idx, line := range lines {
-		current_line := string(line)
+
+	for idx, current_line := range plaintext_lines {
+		total_lines++
 
 		if strings.HasPrefix(current_line, "otpauth:") {
 			password.LoginTOT = current_line
@@ -233,7 +244,6 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 			continue
 		}
 
-		// all the rest of the lines go into notes
 		notes = append(notes, current_line)
 
 	}
@@ -252,13 +262,8 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 	if password.LoginTOT != "" {
 		password.TOTPSHA1 = hashSHA1(password.LoginTOT)
 	}
-	log.Printf("login %s\n", login_from_file)
-	log.Printf("login uri: %s\n", login_uri_from_file)
-	log.Printf("Processed %d lines\n", len(lines))
-	log.Printf("---END DATA for %s---\n", encrypted_file)
-	fmt.Println("")
 
-	return
+	return // return how many lines this file had (in case somebody finds that useful)
 }
 
 func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_file *crypto.VerifiedDataResult, err error) {
