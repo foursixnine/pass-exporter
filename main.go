@@ -68,7 +68,7 @@ func main() {
 
 	if env_passprase != "" {
 		passphrase = []byte(env_passprase)
-		// fmt.Printf("Using %s as passprase", env_passprase)
+		// log.Printf("Using %s as passprase", env_passprase)
 	} else {
 		passphrase = readPassphrase()
 	}
@@ -88,14 +88,14 @@ func main() {
 
 	for _, identity := range keyRing.GetIdentities() {
 		if identity.Email == Config.IdentityEmail {
-			fmt.Printf("Identity found: %s (%s)\n", identity.Name, identity.Email)
+			log.Printf("Identity found: %s (%s)\n", identity.Name, identity.Email)
 		}
 	}
 
 	pgp := crypto.PGP()
 	decryption_handle, err := pgp.Decryption().DecryptionKey(private_key).New()
 	if err != nil {
-		fmt.Printf("Error obtaining decryptor handle: %v\n", err)
+		log.Fatalf("Error obtaining decryptor handle: %v\n", err)
 		return
 	}
 
@@ -107,15 +107,15 @@ func main() {
 
 	for _, encrypted_file := range readDirectory(Config.PasswordStoreDir) {
 		if !strings.HasSuffix(encrypted_file, ".gpg") {
-			// fmt.Printf("Ignoring file %s\n", encrypted_file)
+			// log.Printf("Ignoring file %s\n", encrypted_file)
 			continue
 		}
-		fmt.Printf("Found file: %s\n", encrypted_file)
+		log.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
 		go func() {
 			password, err := processFile(encrypted_file, decryption_handle)
 			if err != nil {
-				fmt.Printf("Error processing file %s\n", encrypted_file)
+				log.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
 				failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
 				mutex.Unlock()
@@ -133,9 +133,9 @@ func main() {
 	wg.Wait()
 
 	if len(failed_to_decrypt) > 0 {
-		fmt.Printf("Failed to decrypt %d files:\n", len(failed_to_decrypt))
+		log.Printf("Failed to decrypt %d files:\n", len(failed_to_decrypt))
 		for _, failed_file := range failed_to_decrypt {
-			fmt.Printf("\t%s\n", failed_file)
+			log.Printf("\t%s\n", failed_file)
 		}
 	}
 
@@ -152,7 +152,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	fmt.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
+	log.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
 	decryption_handle.ClearPrivateParams()
 
 }
@@ -166,6 +166,7 @@ func hashSHA1(s string) string {
 func checkUniqueOTP(passwords *[]Password) {
 	seenOTPs := make(map[string][]string)
 
+	log.Println("Checking for duplicate otp tokens")
 	for _, password := range *passwords {
 		if password.LoginTOT != "" { // Check for non-empty entries
 			seenOTPs[password.LoginTOT] = append(seenOTPs[password.LoginTOT], password.Name)
@@ -177,6 +178,7 @@ func checkUniqueOTP(passwords *[]Password) {
 		if len(usernames) > 1 { // More than one username sharing the same OTP
 			fmt.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
 		}
+		log.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
 	}
 }
 
@@ -193,6 +195,7 @@ func checkUniquePasswords(passwords *[]Password) {
 	for _, usernames := range seenPasswords {
 		if len(usernames) > 1 {
 			fmt.Printf("Duplicate password logins: %v\n", usernames)
+		log.Printf("Duplicate password logins: %v\n", usernames)
 		}
 	}
 }
@@ -207,9 +210,7 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 
 	myMessage := decrypted.Bytes()
 
-	fmt.Printf("---BEGIN DATA for %s---\n", encrypted_file)
-	// fmt.Println(string(myMessage))
-	// fmt.Println("End of raw data, processing lines:")
+	log.Printf("---BEGIN DATA for %s---\n", encrypted_file)
 
 	var notes []string
 	lines := bytes.Split(myMessage, []byte("\n"))
@@ -245,10 +246,10 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 	if password.TOTPSHA1 != "" {
 		password.TOTPSHA1 = hashSHA1(password.LoginTOT)
 	}
-	fmt.Printf("login %s\n", login_from_file)
-	fmt.Printf("login uri: %s\n", login_uri_from_file)
-	fmt.Printf("Processed %d lines\n", len(lines))
-	fmt.Printf("---END DATA for %s---\n", encrypted_file)
+	log.Printf("login %s\n", login_from_file)
+	log.Printf("login uri: %s\n", login_uri_from_file)
+	log.Printf("Processed %d lines\n", len(lines))
+	log.Printf("---END DATA for %s---\n", encrypted_file)
 	fmt.Println("")
 
 	return
@@ -257,13 +258,13 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_file *crypto.VerifiedDataResult, err error) {
 	armored, err := os.ReadFile(file_path)
 	if err != nil {
-		fmt.Printf("Error reading file: %v\n", err)
+		log.Printf("Error reading file: %v\n", err)
 		return
 	}
 
 	decrypted_file, err = decHandle.Decrypt(armored, crypto.Auto)
 	if err != nil {
-		fmt.Printf("Error decrypting file: %v\n", err)
+		log.Printf("Error decrypting file: %v\n", err)
 		return
 	}
 	return
