@@ -159,7 +159,7 @@ func main() {
 
 func hashSHA1(s string) string {
 
-	return fmt.Sprintf("%x", sha1.New().Sum([]byte(s)))
+	return fmt.Sprintf("%x", sha1.Sum([]byte(s)))
 
 }
 
@@ -249,7 +249,7 @@ func processFile(encrypted_file string, decHandle crypto.PGPDecryption) (passwor
 		password.SHA1 = hashSHA1(password.LoginPassword)
 	}
 
-	if password.TOTPSHA1 != "" {
+	if password.LoginTOT != "" {
 		password.TOTPSHA1 = hashSHA1(password.LoginTOT)
 	}
 	log.Printf("login %s\n", login_from_file)
