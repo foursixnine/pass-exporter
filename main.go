@@ -239,7 +239,7 @@ func generatePasswordFromByte(plaintext_lines []string, password *Password, logi
 			continue
 		}
 
-		if idx == 0 && password.LoginPassword != "" {
+		if idx == 0 && current_line != "" {
 			password.LoginPassword = current_line
 			continue
 		}
