@@ -9,7 +9,7 @@ As a requisite you need to have the private key that protects the passwords, exp
 To run simply run directly
 
 ```
-go run . --private-key private_key.asc --identity alice@example.com
+go run cmd/main.go --private-key private_key.asc --identity alice@example.com
 ```
 
 Alternatively you can build it and then run it (Sky is the limit)
