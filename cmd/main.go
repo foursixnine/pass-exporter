@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/foursixnine/pass-exporter/internal/password"
@@ -22,12 +25,13 @@ type Options struct {
 	IgnoredDirs      utils.IgnoreDirs
 }
 
-var Config Options
-
 func main() {
 
 	var passphrase []byte
 	var private_key *crypto.Key
+	var Config Options
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	help := flag.Bool("help", false, "Show help")
 	flag.StringVar(&Config.OutputFile, "output", "pass_exported_passwords.csv", "File to save the exported passwords")
@@ -95,22 +99,26 @@ func main() {
 		}
 		log.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
-		go func() {
-			entry, err := processEncryptedFile(encrypted_file, decryption_handle)
+		go func(ctx context.Context, file_to_process string) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			entry, err := processEncryptedFile(ctx, encrypted_file, Config.PasswordStoreDir, decryption_handle)
 			if err != nil {
 				log.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
 				failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
 				mutex.Unlock()
-				wg.Done()
 				return
 			}
 			mutex.Lock()
 			passwords_entries = append(passwords_entries, entry)
 			processed_files++
 			mutex.Unlock()
-			wg.Done()
-		}()
+		}(ctx, encrypted_file)
 	}
 
 	wg.Wait()
@@ -140,8 +148,8 @@ func main() {
 
 }
 
-func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption) (entry password.Entry, err error) {
-	login_from_file, login_uri_from_file := utils.GetUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
+func processEncryptedFile(ctx context.Context, encrypted_file string, password_store_dir string, decHandle crypto.PGPDecryption) (entry password.Entry, err error) {
+	login_from_file, login_uri_from_file := utils.GetUserNameFromFilename(encrypted_file, password_store_dir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
 	if err != nil {
@@ -152,6 +160,13 @@ func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption)
 
 	log.Printf("---BEGIN DATA for %s---\n", encrypted_file)
 	lines := strings.Split(string(decrypted_bytes), "\n") //bytes.Split(decrypted_bytes, []byte("\n"))
+
+	select {
+	case <-ctx.Done():
+		return entry, ctx.Err()
+	default:
+	}
+
 	total_lines := password.GeneratePasswordFromLines(lines, &entry, login_uri_from_file, login_from_file)
 
 	log.Printf("login %s\n", login_from_file)
