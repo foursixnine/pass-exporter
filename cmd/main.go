@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha1"
 	"flag"
 	"fmt"
 	"log"
@@ -10,25 +9,10 @@ import (
 	"sync"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	"github.com/foursixnine/pass-exporter/internal/password"
 	"github.com/foursixnine/pass-exporter/internal/utils"
 	"github.com/gocarina/gocsv"
 )
-
-type Password struct {
-	Folder                 string `csv:"folder"`
-	Favorite               string `csv:"favorite"`
-	Type                   string `csv:"type"`
-	Name                   string `csv:"name"`
-	Notes                  string `csv:"notes"`
-	Fields                 string `csv:"fields"`
-	RepromptMasterPassword string `csv:"reprompt"`
-	LoginURI               string `csv:"login_uri"`
-	LoginUserName          string `csv:"login_username"`
-	LoginPassword          string `csv:"login_password"`
-	LoginTOT               string `csv:"login_totp"`
-	SHA1                   string `csv:"-"`
-	TOTPSHA1               string `csv:"-"`
-}
 
 type Options struct {
 	OutputFile       string
@@ -98,7 +82,7 @@ func main() {
 		return
 	}
 
-	var passwords []Password
+	var passwords_entries []password.Entry
 	var failed_to_decrypt []string
 	processed_files := 0
 	var wg sync.WaitGroup
@@ -112,7 +96,7 @@ func main() {
 		log.Printf("Found file: %s\n", encrypted_file)
 		wg.Add(1)
 		go func() {
-			password, err := processEncryptedFile(encrypted_file, decryption_handle)
+			entry, err := processEncryptedFile(encrypted_file, decryption_handle)
 			if err != nil {
 				log.Printf("Error processing file %s\n", encrypted_file)
 				mutex.Lock()
@@ -122,7 +106,7 @@ func main() {
 				return
 			}
 			mutex.Lock()
-			passwords = append(passwords, password)
+			passwords_entries = append(passwords_entries, entry)
 			processed_files++
 			mutex.Unlock()
 			wg.Done()
@@ -138,8 +122,8 @@ func main() {
 		}
 	}
 
-	checkUniqueOTP(&passwords)
-	checkUniquePasswords(&passwords)
+	password.CheckUniqueOTP(&passwords_entries)
+	password.CheckUniquePasswords(&passwords_entries)
 
 	csv_file, err := os.Create(Config.OutputFile)
 	if err != nil {
@@ -147,65 +131,16 @@ func main() {
 	}
 	defer csv_file.Close()
 
-	if err := gocsv.MarshalFile(&passwords, csv_file); err != nil {
+	if err := gocsv.MarshalFile(&passwords_entries, csv_file); err != nil {
 		log.Fatalln(err)
 	}
 
-	log.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords))
+	log.Printf("Processed %d files, %d records inserted into csv.\n", processed_files, len(passwords_entries))
 	decryption_handle.ClearPrivateParams()
 
 }
 
-func hashSHA1(s string) string {
-
-	return fmt.Sprintf("%x", sha1.Sum([]byte(s)))
-
-}
-
-func checkUniqueOTP(passwords *[]Password) {
-	seenOTPs := make(map[string][]string)
-	log.Println("Checking for duplicate otp tokens")
-	for _, password := range *passwords {
-		if password.LoginTOT == "" {
-			continue
-		}
-		seenOTPs[password.TOTPSHA1] = append(seenOTPs[password.TOTPSHA1], password.Name)
-		// log.Printf("%x", password.TOTPSHA1)
-	}
-
-	usernames, has_duplicates := hasDuplicates(seenOTPs)
-	if has_duplicates {
-		log.Printf("Duplicate OTP found for users: %v with OTP\n", usernames)
-	}
-}
-
-func checkUniquePasswords(passwords *[]Password) {
-	seenPasswords := make(map[string][]string)
-
-	for _, password := range *passwords {
-		if password.LoginPassword == "" {
-			continue
-		}
-		seenPasswords[password.SHA1] = append(seenPasswords[password.SHA1], password.Name)
-	}
-
-	usernames, has_duplicates := hasDuplicates(seenPasswords)
-	if has_duplicates {
-		log.Printf("Duplicate password logins: %v\n", usernames)
-	}
-}
-
-func hasDuplicates(seen_usernames map[string][]string) (usernames []string, has_duplicates bool) {
-	for _, group := range seen_usernames {
-		if len(group) > 1 {
-			has_duplicates = true
-			usernames = append(usernames, group...)
-		}
-	}
-	return
-}
-
-func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
+func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption) (entry password.Entry, err error) {
 	login_from_file, login_uri_from_file := utils.GetUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
@@ -217,7 +152,7 @@ func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption)
 
 	log.Printf("---BEGIN DATA for %s---\n", encrypted_file)
 	lines := strings.Split(string(decrypted_bytes), "\n") //bytes.Split(decrypted_bytes, []byte("\n"))
-	total_lines := generatePasswordFromLines(lines, &password, login_uri_from_file, login_from_file)
+	total_lines := password.GeneratePasswordFromLines(lines, &entry, login_uri_from_file, login_from_file)
 
 	log.Printf("login %s\n", login_from_file)
 	log.Printf("login uri: %s\n", login_uri_from_file)
@@ -226,44 +161,6 @@ func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption)
 	fmt.Println("")
 
 	return
-}
-
-func generatePasswordFromLines(plaintext_lines []string, password *Password, login_uri_from_file string, login_from_file string) (total_lines int) {
-	var notes []string
-
-	for idx, current_line := range plaintext_lines {
-		total_lines++
-
-		if strings.HasPrefix(current_line, "otpauth:") {
-			password.LoginTOT = current_line
-			continue
-		}
-
-		if idx == 0 && current_line != "" {
-			password.LoginPassword = current_line
-			continue
-		}
-
-		notes = append(notes, current_line)
-
-	}
-
-	password.Folder = "Imported"
-	password.Type = "Login"
-	password.Name = login_uri_from_file + " " + login_from_file
-	password.LoginUserName = login_from_file
-	password.LoginURI = login_uri_from_file
-	password.Notes = strings.Join(notes, "\n")
-
-	if password.LoginPassword != "" {
-		password.SHA1 = hashSHA1(password.LoginPassword)
-	}
-
-	if password.LoginTOT != "" {
-		password.TOTPSHA1 = hashSHA1(password.LoginTOT)
-	}
-
-	return // return how many lines this file had (in case somebody finds that useful)
 }
 
 func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_file *crypto.VerifiedDataResult, err error) {

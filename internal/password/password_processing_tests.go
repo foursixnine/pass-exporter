@@ -1,4 +1,4 @@
-package main
+package password
 
 import (
 	"testing"
@@ -41,8 +41,8 @@ func TestGeneratePasswordFromLines(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var p Password
-			gotLines := generatePasswordFromLines(tc.lines, &p, tc.loginURI, tc.loginFrom)
+			var p Entry
+			gotLines := GeneratePasswordFromLines(tc.lines, &p, tc.loginURI, tc.loginFrom)
 			if gotLines != len(tc.lines) {
 				t.Fatalf("expected total_lines %d, got %d", len(tc.lines), gotLines)
 			}

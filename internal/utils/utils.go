@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"log"
 	"os"
@@ -98,4 +99,10 @@ func GetUserNameFromFilename(target_file string, pass_dir string) (base_name str
 	base_path = strings.TrimPrefix(base_path, "/")
 
 	return
+}
+
+func HashSHA1(s string) string {
+
+	return fmt.Sprintf("%x", sha1.Sum([]byte(s)))
+
 }
