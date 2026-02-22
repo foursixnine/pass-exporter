@@ -1,4 +1,4 @@
-module zarate.co/pass-exporter
+module github.com/foursixnine/pass-exporter
 
 go 1.24
 

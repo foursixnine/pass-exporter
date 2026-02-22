@@ -1,9 +1,10 @@
-package main
+package utils
 
 import (
 	"fmt"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,20 +13,20 @@ import (
 	"golang.org/x/term"
 )
 
-type ignoreDirs []string
+type IgnoreDirs []string
 
 // String is an implementation of the flag.Value interface
-func (i *ignoreDirs) String() string {
+func (i *IgnoreDirs) String() string {
 	return fmt.Sprintf("%v", *i)
 }
 
 // Set is an implementation of the flag.Value interface
-func (i *ignoreDirs) Set(value string) error {
+func (i *IgnoreDirs) Set(value string) error {
 	*i = append(*i, value)
 	return nil
 }
 
-func expandHomeDir(src_path string) (path string) {
+func ExpandHomeDir(src_path string) (path string) {
 	path = src_path
 	if strings.HasPrefix(path, "~") {
 		homeDir, err := os.UserHomeDir()
@@ -39,9 +40,9 @@ func expandHomeDir(src_path string) (path string) {
 	return
 }
 
-func readDirectory(path string) (files []string) {
+func ReadDirectory(ignoredDirs []string, path string) (files []string) {
 
-	path = expandHomeDir(path)
+	path = ExpandHomeDir(path)
 
 	entryFiles, err := os.ReadDir(path)
 	if err != nil {
@@ -55,10 +56,10 @@ func readDirectory(path string) (files []string) {
 		}
 
 		if file.IsDir() {
-			if isIgnored(file.Name()) {
+			if IsIgnored(ignoredDirs, file.Name()) {
 				continue
 			}
-			directoryFiles := readDirectory(filepath.Join(path, file.Name()))
+			directoryFiles := ReadDirectory(ignoredDirs, filepath.Join(path, file.Name()))
 			files = append(files, directoryFiles...)
 		} else {
 			path_to_file := filepath.Join(path, file.Name())
@@ -70,16 +71,31 @@ func readDirectory(path string) (files []string) {
 	return
 }
 
-func isIgnored(fileName string) bool {
-	return slices.Contains(Config.IgnoredDirs, fileName)
+func IsIgnored(ignoredDirs []string, fileName string) bool {
+	return slices.Contains(ignoredDirs, fileName)
 }
 
-func readPassphrase() (passphrase []byte) {
+func ReadPassphrase() (passphrase []byte) {
 	fmt.Print("Enter admin password: ")
 	passphrase, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		fmt.Printf("Could not read password: %v", err)
 	}
 	fmt.Println()
+	return
+}
+
+// Passwords are stored in `domain/login` format
+func GetUserNameFromFilename(target_file string, pass_dir string) (base_name string, base_path string) {
+	pass_dir = ExpandHomeDir(pass_dir)
+	wd_file := strings.TrimPrefix(target_file, pass_dir)
+
+	base_name = path.Base(wd_file)
+	base_name = strings.TrimSuffix(base_name, ".gpg")
+	base_path = path.Dir(wd_file)
+
+	// Remove leading slash from base_path if it exists
+	base_path = strings.TrimPrefix(base_path, "/")
+
 	return
 }

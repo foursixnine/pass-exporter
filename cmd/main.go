@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path"
 	"strings"
 	"sync"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	"github.com/foursixnine/pass-exporter/internal/utils"
 	"github.com/gocarina/gocsv"
 )
 
@@ -35,7 +35,7 @@ type Options struct {
 	PrivateKeyFile   string
 	IdentityEmail    string
 	PasswordStoreDir string
-	IgnoredDirs      ignoreDirs
+	IgnoredDirs      utils.IgnoreDirs
 }
 
 var Config Options
@@ -69,7 +69,7 @@ func main() {
 		passphrase = []byte(env_passprase)
 		// log.Printf("Using %s as passprase", env_passprase)
 	} else {
-		passphrase = readPassphrase()
+		passphrase = utils.ReadPassphrase()
 	}
 
 	key_data, err := os.ReadFile(Config.PrivateKeyFile)
@@ -104,7 +104,7 @@ func main() {
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
-	for _, encrypted_file := range readDirectory(Config.PasswordStoreDir) {
+	for _, encrypted_file := range utils.ReadDirectory(Config.IgnoredDirs, Config.PasswordStoreDir) {
 		if !strings.HasSuffix(encrypted_file, ".gpg") {
 			// log.Printf("Ignoring file %s\n", encrypted_file)
 			continue
@@ -206,7 +206,7 @@ func hasDuplicates(seen_usernames map[string][]string) (usernames []string, has_
 }
 
 func processEncryptedFile(encrypted_file string, decHandle crypto.PGPDecryption) (password Password, err error) {
-	login_from_file, login_uri_from_file := getUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
+	login_from_file, login_uri_from_file := utils.GetUserNameFromFilename(encrypted_file, Config.PasswordStoreDir)
 
 	decrypted, err := decryptFile(encrypted_file, decHandle)
 	if err != nil {
@@ -278,20 +278,5 @@ func decryptFile(file_path string, decHandle crypto.PGPDecryption) (decrypted_fi
 		log.Printf("Error decrypting file: %v\n", err)
 		return
 	}
-	return
-}
-
-// Passwords are stored in `domain/login` format
-func getUserNameFromFilename(target_file string, pass_dir string) (base_name string, base_path string) {
-	pass_dir = expandHomeDir(pass_dir)
-	wd_file := strings.TrimPrefix(target_file, pass_dir)
-
-	base_name = path.Base(wd_file)
-	base_name = strings.TrimSuffix(base_name, ".gpg")
-	base_path = path.Dir(wd_file)
-
-	// Remove leading slash from base_path if it exists
-	base_path = strings.TrimPrefix(base_path, "/")
-
 	return
 }
