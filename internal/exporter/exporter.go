@@ -105,11 +105,11 @@ func Export(ctx context.Context) (clean_exit bool) {
 				return
 			default:
 			}
-			entry, err := processEncryptedFile(ctx, encrypted_file, Configuration.PasswordStoreDir, decryption_handle)
+			entry, err := processEncryptedFile(ctx, file_to_process, Configuration.PasswordStoreDir, decryption_handle)
 			if err != nil {
-				log.Printf("Error processing file %s\n", encrypted_file)
+				log.Printf("Error processing file %s\n", file_to_process)
 				mutex.Lock()
-				failed_to_decrypt = append(failed_to_decrypt, encrypted_file)
+				failed_to_decrypt = append(failed_to_decrypt, file_to_process)
 				mutex.Unlock()
 				return
 			}
